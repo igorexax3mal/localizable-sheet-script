@@ -15,7 +15,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    The number of languages you support. Please check the README.md for more
    information on column positions.
 */
-var NUMBER_OF_LANGUAGES = 1;
+var NUMBER_OF_LANGUAGES = 2;
 
 /* 
    The script expects two columns for iOS and Android identifiers, respectively,
@@ -40,6 +40,7 @@ var IOS_INCLUDES_LOCALIZABLE_ENUM = true;
 
 var LANGUAGE_IOS      = 'iOS';
 var LANGUAGE_ANDROID  = 'Android';
+var LANGUAGE_WEB  = 'Web';
 var DEFAULT_LANGUAGE = LANGUAGE_IOS;
 
 
@@ -50,6 +51,7 @@ function onOpen() {
   ui.createMenu('Custom Export')
       .addItem('iOS', 'exportForIos')
       .addItem('Android', 'exportForAndroid')
+      .addItem('Web (Json)', 'exportForWeb')
       .addToUi();
 }
 
@@ -66,6 +68,15 @@ function exportForAndroid() {
   var e = {
     parameter: {
       language: LANGUAGE_ANDROID
+    }
+  };
+  exportSheet(e);
+}
+
+function exportForWeb() {
+  var e = {
+    parameter: {
+      language: LANGUAGE_WEB
     }
   };
   exportSheet(e);
@@ -128,17 +139,23 @@ function makeButton(app, parent, name, callback) {
   return button;
 }
 
-function makeTextBox(id, content) {
-  var textArea = '<textarea rows="10" cols="80" id="' + id + '">' + content + '</textarea>';
+function makeTextBox(id, title, content) {
+  var textArea = '<p>' + title + '<\p><textarea rows="10" style="width:100%" id="' + id + '">' + content + '</textarea>';
   return textArea;
 }
 
 function displayTexts_(texts) {
-  
   var app = HtmlService.createHtmlOutput().setWidth(800).setHeight(600);
 
+  var app = HtmlService.createHtmlOutput().setWidth(800).setHeight(600);
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet();
+  var headersRange = sheet.getRange(1, FIRST_COLUMN_POSITION + 2, HEADER_ROW_POSITION , sheet.getMaxColumns());
+  var headers = headersRange.getValues()[0];
+  
   for (var i = 0; i < texts.length; i++) {
-     app.append(makeTextBox("export_" + i, texts[i]))
+     app.append(makeTextBox("export_" + i, headers[i], texts[i]))
   }
   
   SpreadsheetApp.getUi().showModalDialog(app, "Translations");
@@ -156,6 +173,9 @@ function makeString(object, textIndex, options) {
       break;
     case LANGUAGE_IOS:
       return makeIosString(object, textIndex, options);
+      break;
+    case LANGUAGE_WEB:
+      return makeJsonString(object, textIndex, options);
       break;
     default:
       break;
@@ -192,6 +212,15 @@ function makeAndroidString(object, textIndex, options) {
       exportString += "\t" + '</string-array>' + "\n";
       prevIdentifier = "";
     }
+
+    if(typeof text === 'string') {
+      text = text.replace(/\n/g, "\\n");
+      text = text.replace(/&/g, "&amp;");
+      text = text.replace(/\'/g, "\\'");
+      text = text.replace(/</g, "&lt;");
+      text = text.replace(/>/g, "&gt;");
+      text = text.replace(/"/g, "\\\"");
+    }
     
     if(identifier.indexOf("[]")>0) {
       
@@ -199,7 +228,7 @@ function makeAndroidString(object, textIndex, options) {
         exportString += "\t" + '<string-array name="' + identifier.substr(0,identifier.length-2) + '">' + "\n";
       }
       
-      exportString += "\t\t"+'<item>'+o.text+'</item>' + "\n";
+      exportString += "\t\t"+'<item>'+text+'</item>' + "\n";
       prevIdentifier = identifier;
       
     } else {
@@ -261,9 +290,40 @@ function makeIosString(object, textIndex, options) {
       continue;
     }
     
+    if(typeof text === 'string') {
+      text = text.replace(/"/g, "\\\"");
+    }
+
     exportString += '"' + identifier + '" = "' + text + "\";\n";
   }
   
+  return exportString;
+}
+
+/*
+   Creates the Localizable.json file.
+*/
+function makeJsonString(object, textIndex, options) {
+
+  var exportString = "";   var prevIdentifier = "";
+  exportString += "{\n";
+
+  for(var i=0; i<object.length; i++) {
+    var o = object[i];
+    var identifier = o.identifierWeb;
+    var text = o.texts[textIndex];
+    
+    if (text == undefined || text == "") {
+      continue;
+    }
+    
+    if(identifier == "") {
+      continue;
+    }
+    
+    exportString += '"' + identifier + '" : "' + text + "\",\n";
+  }
+  exportString += "}";
   return exportString;
 }
 
@@ -275,7 +335,7 @@ function makeIosString(object, textIndex, options) {
    - returns: a string array of the headers
 */
 function getNormalizedHeaders(sheet, options) {
-  var headersRange = sheet.getRange(1, FIRST_COLUMN_POSITION, HEADER_ROW_POSITION, sheet.getMaxColumns());
+  var headersRange = sheet.getRange(HEADER_ROW_POSITION, FIRST_COLUMN_POSITION, 1, sheet.getMaxColumns());
   var headers = headersRange.getValues()[0];
   return normalizeHeaders(headers);
 }
@@ -361,7 +421,7 @@ function getObjects(data, keys) {
         cellData = "";
       }
       
-      if (keys[j] != "identifierIos" && keys[j] != "identifierAndroid") {
+      if (keys[j] != "identifierIos" && keys[j] != "identifierAndroid" && keys[j] != "identifierWeb") {
         object["texts"].push(cellData);
       } else {
         object[keys[j]] = cellData;
